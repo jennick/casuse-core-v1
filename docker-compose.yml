@@ -1,35 +1,23 @@
-version: "3.9"
-
-x-env: &core_env
-  CORE_ENV: development
-  CORE_JWT_ALG: RS256
-  CORE_ACCESS_TTL_MIN: "20"
-  CORE_REFRESH_TTL_DAYS: "14"
-  CORE_ISSUER: http://core.local
-  CORE_AUDIENCE: core-api
-  CORE_CORS_ALLOWED_ORIGINS: http://localhost:10400,http://localhost:8200
-  CORE_DB_HOST: core-db
-  CORE_DB_PORT: "5432"
-  CORE_DB_NAME: coredb
-  CORE_DB_USER: coreapp
-  CORE_DB_PASSWORD: coreapp_pw
-  CORE_DB_SSLMODE: disable
-
 services:
   core-traefik:
     image: traefik:2.11
     command:
-      - --providers.file.directory=/etc/traefik/dynamic
-      - --providers.file.watch=true
       - --entrypoints.web.address=:80
+      # Docker-provider aan
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      # (optioneel debug/dashboard — alleen voor lokaal testen)
+      # - --api.insecure=true
+      # - --api.dashboard=true
     ports:
-      - "10400:80"
+      - "10400:80"     # publiek entrypoint
+      # - "10401:8080" # (optioneel) dashboard
     volumes:
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - core-backend
       - core-frontend
+    restart: unless-stopped
 
   core-db:
     image: postgres:15
@@ -44,11 +32,24 @@ services:
       retries: 20
     volumes:
       - core_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   core-backend:
     build: ./core-backend
     environment:
-      <<: *core_env
+      CORE_ENV: development
+      CORE_JWT_ALG: RS256
+      CORE_ACCESS_TTL_MIN: "20"
+      CORE_REFRESH_TTL_DAYS: "14"
+      CORE_ISSUER: http://core.local
+      CORE_AUDIENCE: core-api
+      CORE_CORS_ALLOWED_ORIGINS: http://localhost:10400,http://localhost:8200
+      CORE_DB_HOST: core-db
+      CORE_DB_PORT: "5432"
+      CORE_DB_NAME: coredb
+      CORE_DB_USER: coreapp
+      CORE_DB_PASSWORD: coreapp_pw
+      CORE_DB_SSLMODE: disable      # in prod: require
     depends_on:
       core-db:
         condition: service_healthy
@@ -56,9 +57,26 @@ services:
       - "9000"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.core_api.rule=PathPrefix(`/api`) || PathPrefix(`/auth`) || Path(`/healthz`) || Path(`/readyz`) || Path(`/oauth/.well-known/openid-configuration`) || Path(`/oauth/jwks.json`)"
+
+      # -------- Router naar de API (hoge prioriteit) --------
+      - "traefik.http.routers.core_api.rule=PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/oauth`) || Path(`/healthz`) || Path(`/readyz`)"
       - "traefik.http.routers.core_api.entrypoints=web"
+      - "traefik.http.routers.core_api.priority=100"
       - "traefik.http.services.core_api.loadbalancer.server.port=9000"
+
+      # -------- (Optioneel) security & throttling via middlewares --------
+      - "traefik.http.routers.core_api.middlewares=core-sec-headers,core-rate,core-retry"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.referrerPolicy=no-referrer"
+      - "traefik.http.middlewares.core-sec-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.permissionsPolicy=geolocation=(), microphone=(), camera=()"
+      - "traefik.http.middlewares.core-rate.ratelimit.average=100"
+      - "traefik.http.middlewares.core-rate.ratelimit.burst=50"
+      - "traefik.http.middlewares.core-retry.retry.attempts=3"
+    restart: unless-stopped
 
   core-frontend:
     build: ./core-frontend
@@ -66,9 +84,26 @@ services:
       - "8200"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.core_fe.rule=PathPrefix(`/`) && !PathPrefix(`/api`) && !PathPrefix(`/auth`) && !PathPrefix(`/oauth`) && !PathPrefix(`/healthz`) && !PathPrefix(`/readyz`)"
+
+      # -------- Catch-all router voor FE (lagere prioriteit) --------
+      - "traefik.http.routers.core_fe.rule=PathPrefix(`/`)"
       - "traefik.http.routers.core_fe.entrypoints=web"
+      - "traefik.http.routers.core_fe.priority=1"
       - "traefik.http.services.core_fe.loadbalancer.server.port=8200"
+
+      # -------- Dezelfde middlewares voor FE (veilig & beperkt) --------
+      - "traefik.http.routers.core_fe.middlewares=core-sec-headers,core-rate,core-retry"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.referrerPolicy=no-referrer"
+      - "traefik.http.middlewares.core-sec-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.core-sec-headers.headers.permissionsPolicy=geolocation=(), microphone=(), camera=()"
+      - "traefik.http.middlewares.core-rate.ratelimit.average=100"
+      - "traefik.http.middlewares.core-rate.ratelimit.burst=50"
+      - "traefik.http.middlewares.core-retry.retry.attempts=3"
+    restart: unless-stopped
 
 volumes:
   core_db_data:

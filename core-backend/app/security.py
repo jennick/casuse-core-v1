@@ -1,4 +1,5 @@
-import bcrypt, os
+# core-backend/app/security.py
+import os
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from .models import JwkKey
 from .config import settings
 from secrets import token_urlsafe
 from Crypto.PublicKey import RSA  # pycryptodome
+import bcrypt
+import hashlib  # <- gebruik hashlib.sha256 voor pre-hash
 
 PEPPER = os.getenv("CORE_PEPPER", "dev-pepper")
 
@@ -21,11 +24,12 @@ def get_active_rsa(db: Session):
     return k
 
 def password_hash(password: str) -> str:
-    pre = bcrypt.sha256((password + PEPPER).encode()).digest()
+    # pre-hash om bcrypt 72-byte limiet te vermijden
+    pre = hashlib.sha256((password + PEPPER).encode()).digest()
     return bcrypt.hashpw(pre, bcrypt.gensalt()).decode()
 
 def password_verify(password: str, pw_hash: str) -> bool:
-    pre = bcrypt.sha256((password + PEPPER).encode()).digest()
+    pre = hashlib.sha256((password + PEPPER).encode()).digest()
     return bcrypt.checkpw(pre, pw_hash.encode())
 
 def make_jwt(db: Session, sub: str, email: str, roles: list[str], ttl_min: int = None) -> tuple[str,str]:
