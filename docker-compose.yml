@@ -1,0 +1,74 @@
+version: "3.9"
+
+x-env: &core_env
+  CORE_ENV: development
+  CORE_JWT_ALG: RS256
+  CORE_ACCESS_TTL_MIN: "20"
+  CORE_REFRESH_TTL_DAYS: "14"
+  CORE_ISSUER: http://core.local
+  CORE_AUDIENCE: core-api
+  CORE_CORS_ALLOWED_ORIGINS: http://localhost:10400,http://localhost:8200
+  CORE_DB_HOST: core-db
+  CORE_DB_PORT: "5432"
+  CORE_DB_NAME: coredb
+  CORE_DB_USER: coreapp
+  CORE_DB_PASSWORD: coreapp_pw
+  CORE_DB_SSLMODE: disable
+
+services:
+  core-traefik:
+    image: traefik:2.11
+    command:
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "10400:80"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+    depends_on:
+      - core-backend
+      - core-frontend
+
+  core-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: coredb
+      POSTGRES_USER: coreapp
+      POSTGRES_PASSWORD: coreapp_pw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - core_db_data:/var/lib/postgresql/data
+
+  core-backend:
+    build: ./core-backend
+    environment:
+      <<: *core_env
+    depends_on:
+      core-db:
+        condition: service_healthy
+    expose:
+      - "9000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.core_api.rule=PathPrefix(`/api`) || PathPrefix(`/auth`) || Path(`/healthz`) || Path(`/readyz`) || Path(`/oauth/.well-known/openid-configuration`) || Path(`/oauth/jwks.json`)"
+      - "traefik.http.routers.core_api.entrypoints=web"
+      - "traefik.http.services.core_api.loadbalancer.server.port=9000"
+
+  core-frontend:
+    build: ./core-frontend
+    expose:
+      - "8200"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.core_fe.rule=PathPrefix(`/`) && !PathPrefix(`/api`) && !PathPrefix(`/auth`) && !PathPrefix(`/oauth`) && !PathPrefix(`/healthz`) && !PathPrefix(`/readyz`)"
+      - "traefik.http.routers.core_fe.entrypoints=web"
+      - "traefik.http.services.core_fe.loadbalancer.server.port=8200"
+
+volumes:
+  core_db_data:

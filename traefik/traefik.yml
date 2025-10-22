@@ -1,0 +1,24 @@
+api:
+  dashboard: false
+log:
+  level: INFO
+accessLog:
+  format: json
+  filters:
+    statusCodes: "200-599"
+serversTransport:
+  insecureSkipVerify: true  # dev; in prod false met echte TLS
+
+# Productie: voeg websecure + ACME toe
+# entryPoints:
+#   web:
+#     address: ":80"
+#   websecure:
+#     address: ":443"
+# certificatesResolvers:
+#   letsencrypt:
+#     acme:
+#       email: admin@example.com
+#       storage: /letsencrypt/acme.json
+#       httpChallenge:
+#         entryPoint: web
