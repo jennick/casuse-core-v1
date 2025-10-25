@@ -1,0 +1,76 @@
+services:
+  billing-db:
+    image: postgres:16
+    container_name: billing-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "billing"
+      POSTGRES_USER: "billing"
+      POSTGRES_PASSWORD: "S9!Billing_p@ss#2025"
+      TZ: "UTC"
+    volumes:
+      - billing_db16_data:/var/lib/postgresql/data
+    networks: [casuse_edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing -d billing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  billing-backend:
+    build: { context: ./backend }
+    container_name: billing-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: "production"
+      TZ: "UTC"
+      MODULE_NAME: "billing"
+      DATABASE_URL: "postgresql://billing:S9!Billing_p@ss#2025@billing-db:5432/billing"
+      OIDC_ISSUER_URL: "http://billing-backend:19001/billing/auth"
+      JWT_ALG: "HS256"
+      JWT_SECRET: "K5!Billing_JWT_2025@Strong"
+    depends_on:
+      billing-db:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 19001
+    expose: ["19001"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      # BACKEND: API/health/docs/openapi
+      - "traefik.http.routers.billing-be.rule=PathPrefix(`/billing/api`) || PathPrefix(`/billing/auth`) || Path(`/billing/healthz`) || Path(`/billing/readyz`) || Path(`/billing/openapi.json`) || PathPrefix(`/billing/docs`)"
+      - "traefik.http.routers.billing-be.entrypoints=web"
+      - "traefik.http.routers.billing-be.priority=10000"
+      - "traefik.http.routers.billing-be.service=billing-be"
+      - "traefik.http.services.billing-be.loadbalancer.server.port=19001"
+
+      # Strip '/billing'
+      - "traefik.http.middlewares.billing-strip.stripprefix.prefixes=/billing"
+      - "traefik.http.routers.billing-be.middlewares=billing-strip"
+    networks: [casuse_edge]
+
+  billing-frontend:
+    build: { context: ./frontend }
+    container_name: billing-frontend
+    restart: unless-stopped
+    expose: ["18001"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      # FRONTEND: catch-all (lage prioriteit)
+      - "traefik.http.routers.billing-fe.rule=PathPrefix(`/billing`)"
+      - "traefik.http.routers.billing-fe.entrypoints=web"
+      - "traefik.http.routers.billing-fe.priority=1"
+      - "traefik.http.services.billing-fe.loadbalancer.server.port=18001"
+    networks: [casuse_edge]
+
+networks:
+  casuse_edge:
+    external: true
+
+volumes:
+  billing_db16_data:
+    name: billing_db16_data

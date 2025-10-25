@@ -1,0 +1,97 @@
+services:
+  inventory-db:
+    image: postgres:16
+    container_name: inventory-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "inventory"
+      POSTGRES_USER: "inventory"
+      POSTGRES_PASSWORD: "S9!Inventory_p@ss#2025"
+      TZ: "UTC"
+    volumes:
+      - inventory_db16_data:/var/lib/postgresql/data
+    networks: [casuse_edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  inventory-backend:
+    build:
+      context: ./backend
+    container_name: inventory-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: "production"
+      TZ: "UTC"
+      MODULE_NAME: "inventory"
+      DATABASE_URL: "postgresql://inventory:S9!Inventory_p@ss#2025@inventory-db:5432/inventory"
+      OIDC_ISSUER_URL: "http://inventory-backend:19004/inventory/auth"
+      JWT_ALG: "HS256"
+      JWT_SECRET: "K5!Inventory_JWT_2025@Strong"
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 19004
+    expose: ["19004"]
+    networks: [casuse_edge]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      # --- Specifieke health-route: kan nooit verliezen ---
+      - "traefik.http.routers.inventory-health.rule=Path(`/inventory/healthz`)"
+      - "traefik.http.routers.inventory-health.entrypoints=web"
+      - "traefik.http.routers.inventory-health.priority=20000"
+      - "traefik.http.routers.inventory-health.service=inventory-be"
+      - "traefik.http.routers.inventory-health.middlewares=inventory-strip"
+
+      # --- Backend voor API/auth/docs/openapi/readyz ---
+      - >-
+        traefik.http.routers.inventory-be.rule=
+        PathPrefix(`/inventory/api`)
+        || PathPrefix(`/inventory/auth`)
+        || PathPrefix(`/inventory/docs`)
+        || Path(`/inventory/openapi.json`)
+        || Path(`/inventory/readyz`)
+      - "traefik.http.routers.inventory-be.entrypoints=web"
+      - "traefik.http.routers.inventory-be.priority=10000"
+      - "traefik.http.routers.inventory-be.middlewares=inventory-strip"
+      - "traefik.http.services.inventory-be.loadbalancer.server.port=19004"
+
+      # --- Prefix-strip middleware (maakt /inventory/... → /...) ---
+      - "traefik.http.middlewares.inventory-strip.stripprefix.prefixes=/inventory"
+
+  inventory-frontend:
+    build:
+      context: ./frontend
+    container_name: inventory-frontend
+    restart: unless-stopped
+    expose: ["18004"]
+    networks: [casuse_edge]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+      # Frontend: alles onder /inventory behalve de backend-paden
+      - >-
+        traefik.http.routers.inventory-fe.rule=
+        PathPrefix(`/inventory`)
+        && !PathPrefix(`/inventory/api`)
+        && !PathPrefix(`/inventory/auth`)
+        && !PathPrefix(`/inventory/docs`)
+        && !PathPrefix(`/inventory/openapi.json`)
+        && !PathPrefix(`/inventory/healthz`)
+        && !PathPrefix(`/inventory/readyz`)
+      - "traefik.http.routers.inventory-fe.entrypoints=web"
+      - "traefik.http.routers.inventory-fe.priority=1"
+      - "traefik.http.services.inventory-fe.loadbalancer.server.port=18004"
+
+networks:
+  casuse_edge:
+    external: true
+
+volumes:
+  inventory_db16_data:
+    name: inventory_db16_data

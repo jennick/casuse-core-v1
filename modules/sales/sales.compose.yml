@@ -1,0 +1,73 @@
+services:
+  sales-db:
+    image: postgres:16
+    container_name: sales-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "sales"
+      POSTGRES_USER: "sales"
+      POSTGRES_PASSWORD: "S9!Sales_p@ss#2025"
+      TZ: "UTC"
+    volumes:
+      - sales_db16_data:/var/lib/postgresql/data
+    networks: [casuse_edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sales -d sales"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sales-backend:
+    build: { context: ./backend }
+    container_name: sales-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: "production"
+      TZ: "UTC"
+      MODULE_NAME: "sales"
+      DATABASE_URL: "postgresql://sales:S9!Sales_p@ss#2025@sales-db:5432/sales"
+      OIDC_ISSUER_URL: "http://sales-backend:19002/sales/auth"
+      JWT_ALG: "HS256"
+      JWT_SECRET: "K5!Sales_JWT_2025@Strong"
+    depends_on:
+      sales-db:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 19002
+    expose: ["19002"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      - "traefik.http.routers.sales-be.rule=PathPrefix(`/sales/api`) || PathPrefix(`/sales/auth`) || Path(`/sales/healthz`) || Path(`/sales/readyz`) || Path(`/sales/openapi.json`) || PathPrefix(`/sales/docs`)"
+      - "traefik.http.routers.sales-be.entrypoints=web"
+      - "traefik.http.routers.sales-be.priority=10000"
+      - "traefik.http.routers.sales-be.service=sales-be"
+      - "traefik.http.services.sales-be.loadbalancer.server.port=19002"
+
+      - "traefik.http.middlewares.sales-strip.stripprefix.prefixes=/sales"
+      - "traefik.http.routers.sales-be.middlewares=sales-strip"
+    networks: [casuse_edge]
+
+  sales-frontend:
+    build: { context: ./frontend }
+    container_name: sales-frontend
+    restart: unless-stopped
+    expose: ["18002"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      - "traefik.http.routers.sales-fe.rule=PathPrefix(`/sales`)"
+      - "traefik.http.routers.sales-fe.entrypoints=web"
+      - "traefik.http.routers.sales-fe.priority=1"
+      - "traefik.http.services.sales-fe.loadbalancer.server.port=18002"
+    networks: [casuse_edge]
+
+networks:
+  casuse_edge:
+    external: true
+
+volumes:
+  sales_db16_data:
+    name: sales_db16_data

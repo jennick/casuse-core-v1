@@ -14,3 +14,20 @@ __pycache__/
 .DS_Store
 Thumbs.db
 traefik/dynamic/
+# env & secrets
+.env
+.env.*
+*.env
+*.env.*
+!/env.example
+**/.env
+**/.env.*
+
+# build artifacts
+**/dist
+**/node_modules
+**/__pycache__
+**/*.pyc
+
+# docker named volumes (niet van toepassing als het echte Docker volumes zijn)
+volumes/

@@ -1,0 +1,73 @@
+services:
+  website-db:
+    image: postgres:16
+    container_name: website-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "website"
+      POSTGRES_USER: "website"
+      POSTGRES_PASSWORD: "S9!Website_p@ss#2025"
+      TZ: "UTC"
+    volumes:
+      - website_db16_data:/var/lib/postgresql/data
+    networks: [casuse_edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U website -d website"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  website-backend:
+    build: { context: ./backend }
+    container_name: website-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: "production"
+      TZ: "UTC"
+      MODULE_NAME: "website"
+      DATABASE_URL: "postgresql://website:S9!Website_p@ss#2025@website-db:5432/website"
+      OIDC_ISSUER_URL: "http://website-backend:19003/website/auth"
+      JWT_ALG: "HS256"
+      JWT_SECRET: "K5!Website_JWT_2025@Strong"
+    depends_on:
+      website-db:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 19003
+    expose: ["19003"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      - "traefik.http.routers.website-be.rule=PathPrefix(`/website/api`) || PathPrefix(`/website/auth`) || Path(`/website/healthz`) || Path(`/website/readyz`) || Path(`/website/openapi.json`) || PathPrefix(`/website/docs`)"
+      - "traefik.http.routers.website-be.entrypoints=web"
+      - "traefik.http.routers.website-be.priority=10000"
+      - "traefik.http.routers.website-be.service=website-be"
+      - "traefik.http.services.website-be.loadbalancer.server.port=19003"
+
+      - "traefik.http.middlewares.website-strip.stripprefix.prefixes=/website"
+      - "traefik.http.routers.website-be.middlewares=website-strip"
+    networks: [casuse_edge]
+
+  website-frontend:
+    build: { context: ./frontend }
+    container_name: website-frontend
+    restart: unless-stopped
+    expose: ["18003"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=casuse_edge"
+
+      - "traefik.http.routers.website-fe.rule=PathPrefix(`/website`)"
+      - "traefik.http.routers.website-fe.entrypoints=web"
+      - "traefik.http.routers.website-fe.priority=1"
+      - "traefik.http.services.website-fe.loadbalancer.server.port=18003"
+    networks: [casuse_edge]
+
+networks:
+  casuse_edge:
+    external: true
+
+volumes:
+  website_db16_data:
+    name: website_db16_data

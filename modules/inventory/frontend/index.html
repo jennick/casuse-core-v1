@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Inventory Module</title></head>
+<body>
+  <h1>Inventory Module</h1>
+  <p>This is a minimal placeholder UI served by Nginx on port 18004.</p>
+  <button id="ping">Ping /inventory/healthz</button>
+  <pre id="out"></pre>
+  <script>
+    document.getElementById('ping').onclick = async () => {
+      const r = await fetch('/inventory/healthz');
+      document.getElementById('out').textContent = await r.text();
+    };
+  </script>
+</body>
+</html>

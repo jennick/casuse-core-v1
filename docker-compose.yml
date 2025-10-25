@@ -1,109 +1,85 @@
 services:
-  core-traefik:
-    image: traefik:2.11
-    command:
-      - --entrypoints.web.address=:80
-      # Docker-provider aan
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      # (optioneel debug/dashboard — alleen voor lokaal testen)
-      # - --api.insecure=true
-      # - --api.dashboard=true
-    ports:
-      - "10400:80"     # publiek entrypoint
-      # - "10401:8080" # (optioneel) dashboard
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - core-backend
-      - core-frontend
-    restart: unless-stopped
-
   core-db:
     image: postgres:15
+    container_name: core-db
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: coredb
-      POSTGRES_USER: coreapp
-      POSTGRES_PASSWORD: coreapp_pw
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+      POSTGRES_DB: "${POSTGRES_DB:-casuse_core}"
+      POSTGRES_USER: "${POSTGRES_USER:-casuse}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-V4!urw7FtCj^2sGqKz9*NhQp5yWbLdXm}"
+      TZ: "${TZ:-UTC}"
     volumes:
       - core_db_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    networks: [core_net]
 
   core-backend:
-    build: ./core-backend
+    build:
+      context: ./core-backend
+    restart: unless-stopped
     environment:
-      CORE_ENV: development
-      CORE_JWT_ALG: RS256
-      CORE_ACCESS_TTL_MIN: "20"
-      CORE_REFRESH_TTL_DAYS: "14"
-      CORE_ISSUER: http://core.local
-      CORE_AUDIENCE: core-api
-      CORE_CORS_ALLOWED_ORIGINS: http://localhost:10400,http://localhost:8200
-      CORE_DB_HOST: core-db
-      CORE_DB_PORT: "5432"
-      CORE_DB_NAME: coredb
-      CORE_DB_USER: coreapp
-      CORE_DB_PASSWORD: coreapp_pw
-      CORE_DB_SSLMODE: disable      # in prod: require
+      ENVIRONMENT: "${ENVIRONMENT:-production}"
+      TZ: "${TZ:-UTC}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-casuse}:${POSTGRES_PASSWORD:-V4!urw7FtCj^2sGqKz9*NhQp5yWbLdXm}@core-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-casuse_core}"
+      JWT_ALG: "${JWT_ALG:-HS256}"
+      JWT_SECRET: "${JWT_SECRET:-Q5&b9LzR1@eY7u!H3pV^cD2kM8sN0xAa}"
+      # issuer verwijst intern naar de backend op poort 9000
+      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-http://core-backend:9000/auth}"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-core-frontend}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-U8!pDx3^Tn5#qLs7Zk1@wVr0}"
     depends_on:
-      core-db:
-        condition: service_healthy
-    expose:
-      - "9000"
+      - core-db
     labels:
       - "traefik.enable=true"
 
-      # -------- Router naar de API (hoge prioriteit) --------
-      - "traefik.http.routers.core_api.rule=PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/oauth`) || Path(`/healthz`) || Path(`/readyz`)"
-      - "traefik.http.routers.core_api.entrypoints=web"
-      - "traefik.http.routers.core_api.priority=100"
-      - "traefik.http.services.core_api.loadbalancer.server.port=9000"
+      # Router: alles voor backend-API's
+      - "traefik.http.routers.core-backend.rule=HostRegexp(`{host:.+}`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`) || PathPrefix(`/healthz`) || PathPrefix(`/readyz`) || PathPrefix(`/token`) || PathPrefix(`/tiles`))"
+      - "traefik.http.routers.core-backend.entrypoints=web"
+      # Backend luistert op 9000
+      - "traefik.http.services.core-backend.loadbalancer.server.port=9000"
 
-      # -------- (Optioneel) security & throttling via middlewares --------
-      - "traefik.http.routers.core_api.middlewares=core-sec-headers,core-rate,core-retry"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsSeconds=31536000"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsPreload=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.referrerPolicy=no-referrer"
-      - "traefik.http.middlewares.core-sec-headers.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.frameDeny=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.permissionsPolicy=geolocation=(), microphone=(), camera=()"
-      - "traefik.http.middlewares.core-rate.ratelimit.average=100"
-      - "traefik.http.middlewares.core-rate.ratelimit.burst=50"
-      - "traefik.http.middlewares.core-retry.retry.attempts=3"
-    restart: unless-stopped
+      # ---------- Rewrites (frontend -> backend) ----------
+      # 1) /token  -> /auth/token   (POST)
+      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.regex=^/token$"
+      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.replacement=/auth/token"
+      # 2) /tiles  -> /api/tiles    (GET)
+      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.regex=^/tiles(.*)$"
+      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.replacement=/api/tiles$1"
+      # Koppel beide middlewares aan de backend-router
+      - "traefik.http.routers.core-backend.middlewares=core-backend-rewrite-token,core-backend-rewrite-tiles"
+    networks: [core_net]
 
   core-frontend:
-    build: ./core-frontend
-    expose:
-      - "8200"
+    build:
+      context: ./core-frontend
+    restart: unless-stopped
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.core-frontend.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.core-frontend.entrypoints=web"
+      # Frontend container luistert intern op 8200
+      - "traefik.http.services.core-frontend.loadbalancer.server.port=8200"
+    networks: [core_net]
 
-      # -------- Catch-all router voor FE (lagere prioriteit) --------
-      - "traefik.http.routers.core_fe.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.core_fe.entrypoints=web"
-      - "traefik.http.routers.core_fe.priority=1"
-      - "traefik.http.services.core_fe.loadbalancer.server.port=8200"
-
-      # -------- Dezelfde middlewares voor FE (veilig & beperkt) --------
-      - "traefik.http.routers.core_fe.middlewares=core-sec-headers,core-rate,core-retry"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsSeconds=31536000"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.stsPreload=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.referrerPolicy=no-referrer"
-      - "traefik.http.middlewares.core-sec-headers.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.frameDeny=true"
-      - "traefik.http.middlewares.core-sec-headers.headers.permissionsPolicy=geolocation=(), microphone=(), camera=()"
-      - "traefik.http.middlewares.core-rate.ratelimit.average=100"
-      - "traefik.http.middlewares.core-rate.ratelimit.burst=50"
-      - "traefik.http.middlewares.core-retry.retry.attempts=3"
+  core-traefik:
+    image: traefik:2.11
+    container_name: core-traefik
     restart: unless-stopped
+    ports:
+      - "${PUBLIC_HTTP_PORT:-10400}:80"   # lokaal alleen HTTP
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - core_net
+      - casuse_edge
+
+networks:
+  core_net: {}
+  casuse_edge:
+    external: true
 
 volumes:
   core_db_data:
