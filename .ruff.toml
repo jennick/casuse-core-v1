@@ -1,14 +1,12 @@
-﻿[lint]
-# Behoud standaardregels, maar laat Bugbear (B*) los voor nu
-# en respecteer import-sorting (I) + Pyflakes (F) + Pycodestyle (E).
+﻿# .ruff.toml
+[lint]
+# Hou Pycodestyle (E), Pyflakes (F) en import rules (I) aan.
+# Laat Bugbear (B*) bewust uit om B904-stijlruis te vermijden.
 select = ["E", "F", "I"]
 fixable = ["ALL"]
+# Optioneel: pas aan als je langere regels wil.
+line-length = 100
 
 [lint.per-file-ignores]
-# De agent-stubs hebben compacte importregels: die zijn oké.
+# Agent-stubs gebruiken compacte importregels; dat is oké.
 "agent/tasks/*.py" = ["E401"]
-
-# Optioneel: als er in jouw app nog B904's blijven sluimeren,
-# kun je later gericht per directory B904 uitzetten, bv.:
-#"modules/**.py" = ["B904"]
-#"core-backend/**.py" = ["B904"]
