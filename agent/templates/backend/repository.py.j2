@@ -1,0 +1,47 @@
+from typing import List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.schemas import {{ spec.feature.name }} as schema
+from app.models.{{ spec.feature.name }} import {{ spec.feature.name|capitalize }}
+from app.db import get_session
+
+async def list_items() -> List[schema.{{ spec.feature.name|capitalize }}Out]:
+    async with get_session() as ses:  # type: AsyncSession
+        rows = (await ses.execute(select({{ spec.feature.name|capitalize }}))).scalars().all()
+        return [schema.{{ spec.feature.name|capitalize }}Out.model_validate(r.__dict__) for r in rows]
+
+async def create_item(payload: schema.{{ spec.feature.name|capitalize }}In) -> schema.{{ spec.feature.name|capitalize }}Out:
+    async with get_session() as ses:
+        obj = {{ spec.feature.name|capitalize }}(**payload.model_dump())
+        ses.add(obj)
+        await ses.commit()
+        await ses.refresh(obj)
+        return schema.{{ spec.feature.name|capitalize }}Out.model_validate(obj.__dict__)
+
+async def get_item(id: str) -> Optional[schema.{{ spec.feature.name|capitalize }}Out]:
+    async with get_session() as ses:
+        obj = await ses.get({{ spec.feature.name|capitalize }}, id)
+        return schema.{{ spec.feature.name|capitalize }}Out.model_validate(obj.__dict__) if obj else None
+
+async def update_item(id: str, payload: schema.{{ spec.feature.name|capitalize }}In) -> schema.{{ spec.feature.name|capitalize }}Out:
+    async with get_session() as ses:
+        obj = await ses.get({{ spec.feature.name|capitalize }}, id)
+        for k,v in payload.model_dump().items():
+            setattr(obj, k, v)
+        await ses.commit()
+        await ses.refresh(obj)
+        return schema.{{ spec.feature.name|capitalize }}Out.model_validate(obj.__dict__)
+
+async def delete_item(id: str) -> None:
+    async with get_session() as ses:
+        obj = await ses.get({{ spec.feature.name|capitalize }}, id)
+        if obj:
+            await ses.delete(obj); await ses.commit()
+
+async def search_items(email: Optional[str] = None) -> List[schema.{{ spec.feature.name|capitalize }}Out]:
+    async with get_session() as ses:
+        q = select({{ spec.feature.name|capitalize }})
+        if email:
+            q = q.where({{ spec.feature.name|capitalize }}.email == email)
+        rows = (await ses.execute(q)).scalars().all()
+        return [schema.{{ spec.feature.name|capitalize }}Out.model_validate(r.__dict__) for r in rows]

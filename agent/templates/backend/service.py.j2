@@ -1,0 +1,21 @@
+from typing import List, Optional
+from app.repositories import {{ spec.feature.name }} as repo
+from app.schemas import {{ spec.feature.name }} as schema
+
+async def list_items() -> List[schema.{{ spec.feature.name|capitalize }}Out]:
+    return await repo.list_items()
+
+async def create_item(payload: schema.{{ spec.feature.name|capitalize }}In) -> schema.{{ spec.feature.name|capitalize }}Out:
+    return await repo.create_item(payload)
+
+async def get_item(id: str) -> Optional[schema.{{ spec.feature.name|capitalize }}Out]:
+    return await repo.get_item(id)
+
+async def update_item(id: str, payload: schema.{{ spec.feature.name|capitalize }}In) -> schema.{{ spec.feature.name|capitalize }}Out:
+    return await repo.update_item(id, payload)
+
+async def delete_item(id: str) -> None:
+    await repo.delete_item(id)
+
+async def search_items(email: Optional[str] = None) -> List[schema.{{ spec.feature.name|capitalize }}Out]:
+    return await repo.search_items(email=email)

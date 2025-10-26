@@ -1,0 +1,51 @@
+name: Agent • Extras Router
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  route-extras:
+    if: contains(github.event.comment.body, '/agent ')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r agent/requirements.txt
+      - name: Parse and dispatch
+        env:
+          ISSUE_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -e
+          echo "$ISSUE_BODY"
+          CMD=$(echo "$ISSUE_BODY" | tr -s ' ')
+          if   echo "$CMD" | grep -qi "/agent openapi diff"; then python agent/tasks/openapi_diff.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent client regen"; then python agent/tasks/client_regen.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent contract test"; then python agent/tasks/contract_test.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent db shadow-migrate"; then python agent/tasks/db_shadow_migrate.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent db plan"; then python agent/tasks/db_plan.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent db index suggest"; then ARG=$(echo "$CMD" | sed -n 's/.*db index suggest[ ]\+\([^ ]\+\).*/\1/p'); python agent/tasks/db_index_suggest.py --arg "$ARG"; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent sec headers"; then python agent/tasks/sec_headers.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent sec scan"; then python agent/tasks/sec_scan.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent pii lint"; then python agent/tasks/pii_lint.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent changelog synth"; then python agent/tasks/changelog_synth.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent version bump"; then ARG=$(echo "$CMD" | sed -n 's/.*version bump[ ]\+\([^ ]\+\).*/\1/p'); python agent/tasks/version_bump.py --arg "$ARG"; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent release gate"; then ARG=$(echo "$CMD" | sed -n 's/.*release gate[ ]\+\([^ ]\+\).*/\1/p'); python agent/tasks/release_gate.py --arg "$ARG"; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent traefik verify"; then python agent/tasks/traefik_verify.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent traefik plan"; then python agent/tasks/traefik_plan.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent ui e2e smoke"; then python agent/tasks/ui_e2e_smoke.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent ui audit"; then python agent/tasks/ui_audit.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent perf profile"; then python agent/tasks/perf_profile.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent docker diet"; then python agent/tasks/docker_diet.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent ci speedup"; then python agent/tasks/ci_speedup.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent docs update"; then python agent/tasks/docs_update.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent runbook gen"; then ARG=$(echo "$CMD" | sed -n 's/.*runbook gen[ ]\+\(.*\)$/\1/p'); python agent/tasks/runbook_gen.py --arg "$ARG"; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent chaos lite"; then python agent/tasks/chaos_lite.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent rate-limit verify"; then python agent/tasks/rate_limit_verify.py; exit 0; fi
+          if   echo "$CMD" | grep -qi "/agent retry policy"; then python agent/tasks/retry_policy.py; exit 0; fi
+          echo "No extras command recognized."

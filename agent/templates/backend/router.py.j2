@@ -1,0 +1,43 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from app.schemas import {{ spec.feature.name }} as schema
+from app.services import {{ spec.feature.name }} as service
+try:
+    from app.auth import get_current_user_with_scopes
+except Exception:
+    def get_current_user_with_scopes(scopes):
+        def _noop(): return None
+        return _noop
+
+router = APIRouter(prefix="{{ spec.feature.api_prefix }}", tags=["{{ spec.feature.name }}"])
+
+READ_SCOPES = {{ spec.feature.security.read_scopes|default(["read"]) }}
+WRITE_SCOPES = {{ spec.feature.security.write_scopes|default(["write"]) }}
+
+@router.get("/", response_model=List[schema.{{ spec.feature.name|capitalize }}Out])
+async def list_items(user = Depends(get_current_user_with_scopes(READ_SCOPES))):
+    return await service.list_items()
+
+@router.post("/", response_model=schema.{{ spec.feature.name|capitalize }}Out)
+async def create_item(payload: schema.{{ spec.feature.name|capitalize }}In, user = Depends(get_current_user_with_scopes(WRITE_SCOPES))):
+    return await service.create_item(payload)
+
+@router.get("/search", response_model=List[schema.{{ spec.feature.name|capitalize }}Out])
+async def search_items(email: Optional[str] = Query(default=None), user = Depends(get_current_user_with_scopes(READ_SCOPES))):
+    return await service.search_items(email=email)
+
+@router.get("/{id}", response_model=schema.{{ spec.feature.name|capitalize }}Out)
+async def get_item(id: str, user = Depends(get_current_user_with_scopes(READ_SCOPES))):
+    item = await service.get_item(id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    return item
+
+@router.put("/{id}", response_model=schema.{{ spec.feature.name|capitalize }}Out)
+async def update_item(id: str, payload: schema.{{ spec.feature.name|capitalize }}In, user = Depends(get_current_user_with_scopes(WRITE_SCOPES))):
+    return await service.update_item(id, payload)
+
+@router.delete("/{id}")
+async def delete_item(id: str, user = Depends(get_current_user_with_scopes(WRITE_SCOPES))):
+    await service.delete_item(id)
+    return {"ok": True}

@@ -1,0 +1,17 @@
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, DateTime
+from datetime import datetime
+import uuid
+from app.db import Base
+
+def _default_uuid():
+    return str(uuid.uuid4())
+
+class {{ spec.feature.name|capitalize }}(Base):
+    __tablename__ = "{{ spec.feature.model.table }}"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_default_uuid)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

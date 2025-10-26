@@ -1,0 +1,14 @@
+services:
+  core-backend:
+    build:
+      context: .
+      dockerfile: core/backend/Dockerfile
+    environment:
+      - ENV=ci
+    expose: [9000]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]

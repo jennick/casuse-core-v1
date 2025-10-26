@@ -1,0 +1,10 @@
+services:
+  core-backend:
+    container_port: 9000
+    traefik_router: core-backend
+  core-frontend:
+    container_port: 8200
+    traefik_router: core-frontend
+rules:
+  enforce_labels: true
+  forbid_host_ports: [80, 443]

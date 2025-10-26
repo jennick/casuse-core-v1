@@ -1,0 +1,34 @@
+name: Agent • Continue Until Green
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  continue:
+    if: contains(github.event.comment.body, '/agent continue')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Install agent deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agent/requirements.txt
+      - name: Safe auto-fixes (compose labels/ports, ruff fix)
+        run: |
+          set -e
+          python agent/tasks/fix_ports_apply.py || true
+          ruff check . --fix || true
+      - name: Commit fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "agent: small policy fixes (ports/labels/format)"
+          commit_user_name: "casuse-agent"
+          commit_user_email: "agent@users.noreply.github.com"
+      - name: Quick audit
+        run: python agent/cli.py audit || true

@@ -1,0 +1,50 @@
+name: "Feature via agent (YAML-spec)"
+description: "Gebruik dit sjabloon en start in de comments met /agent implement"
+title: "[Feature] "
+labels: ["feature", "agent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plaats in een comment **/agent implement** en plak onderstaande YAML (pas aan).
+  - type: textarea
+    id: yaml
+    attributes:
+      label: YAML-spec
+      description: Plak hier je YAML en kopieer dezelfde naar een comment met /agent implement
+      render: yaml
+      value: |
+        feature:
+          name: customers
+          api_prefix: /api/customers
+          model:
+            table: customers
+            fields:
+              - {name: id, type: uuid, primary: true}
+              - {name: name, type: str, max_len: 120, required: true}
+              - {name: email, type: email, unique: true, required: true}
+              - {name: status, type: enum, values: [active, inactive], default: active}
+              - {name: created_at, type: datetime, default: now}
+              - {name: updated_at, type: datetime, default: now}
+          security:
+            read_scopes:  ["customers:read"]
+            write_scopes: ["customers:write"]
+          endpoints:
+            - {method: GET,    path: "/",       action: list}
+            - {method: POST,   path: "/",       action: create}
+            - {method: GET,    path: "/{id}",   action: get}
+            - {method: PUT,    path: "/{id}",   action: update}
+            - {method: DELETE, path: "/{id}",   action: delete}
+            - {method: GET,    path: "/search", action: search, params: [{name: email, type: str, required: true}]}
+          db:
+            indexes:
+              - {type: unique, fields: [email]}
+              - {type: btree,  fields: [status]}
+          frontend:
+            route: /customers
+            operations: [list, search, create, edit, delete]
+          tests:
+            api:
+              - {name: create_ok}
+              - {name: duplicate_email_conflict}
+              - {name: search_by_email_ok}

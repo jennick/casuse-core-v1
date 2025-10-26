@@ -1,0 +1,3 @@
+frontend:
+  require_error_boundary_per_route: true
+  tokens_locked: false
