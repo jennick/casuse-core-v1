@@ -1,0 +1,6 @@
+﻿[lint]
+select = ["E", "F", "B", "I"]
+fixable = ["ALL"]
+
+[lint.per-file-ignores]
+"agent/tasks/*.py" = ["E401"]
