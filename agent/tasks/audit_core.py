@@ -1,4 +1,9 @@
-import subprocess, sys, json, os, pathlib
+import subprocess
+import sys
+import json
+import os
+import pathlib
+
 
 def sh(cmd):
     print("+", " ".join(cmd))
