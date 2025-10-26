@@ -21,7 +21,8 @@ def run():
 
     # 3) mypy/bandit alleen draaien als er targets zijn
     if py_targets:
-        rc |= sh(["mypy", *py_targets])
+         mypy_args = ["mypy", "--explicit-package-bases", "--namespace-packages", *py_targets]
+        rc |= sh(mypy_args)
         rc |= sh(["bandit", "-q", "-r", *py_targets])
     else:
         print("No python targets found for mypy/bandit — skipping.")
