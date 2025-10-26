@@ -22,8 +22,8 @@ jobs:
           echo "Command: $ISSUE_BODY"
           if echo "$ISSUE_BODY" | grep -q "/agent smoke"; then
             echo "Running smoke..."
-            if [ -f core/backend/Dockerfile ] && [ -f docker-compose.ci.yml ]; then
-              docker build -f core/backend/Dockerfile -t casuse-core-backend:ci .
+            if [ -f core-backend/Dockerfile ] && [ -f docker-compose.ci.yml ]; then
+              docker build -f core-backend/Dockerfile -t casuse-core-backend:ci .
               docker compose -f docker-compose.ci.yml up -d
               sleep 10
               SMOKE_BASE="http://localhost:9000" python agent/cli.py smoke || true

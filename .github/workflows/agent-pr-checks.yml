@@ -22,8 +22,8 @@ jobs:
           python agent/tasks/audit_core.py
       - name: (Optional) Build & Run backend for smoke
         run: |
-          if [ -f core/backend/Dockerfile ]; then
-            docker build -f core/backend/Dockerfile -t casuse-core-backend:ci .
+          if [ -f core-backend/Dockerfile ]; then
+            docker build -f core-backend/Dockerfile -t casuse-core-backend:ci .
             if [ -f docker-compose.ci.yml ]; then
               docker compose -f docker-compose.ci.yml up -d
               sleep 10
@@ -32,5 +32,5 @@ jobs:
               docker compose -f docker-compose.ci.yml down -v
             fi
           else
-            echo "core/backend/Dockerfile not found – skipping smoke"; 
+            echo "core-backend/Dockerfile not found – skipping smoke"; 
           fi

@@ -2,7 +2,7 @@ services:
   core-backend:
     build:
       context: .
-      dockerfile: core/backend/Dockerfile
+      dockerfile: core-backend/Dockerfile
     environment:
       - ENV=ci
     expose: [9000]
