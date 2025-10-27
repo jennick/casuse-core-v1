@@ -11,6 +11,9 @@ jobs:
     name: Agent - PR Checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Zorg dat imports zoals "app.main" en package "core_backend" werken
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/core-backend
 
     steps:
       - name: Checkout
@@ -29,19 +32,19 @@ jobs:
           python -V
           python -m pip --version
 
-      - name: Ensure UTF-8 no-BOM in .ruff.toml
+      - name: Ensure .ruff.toml is UTF-8 (no BOM) and parseable
         run: |
           python - <<'PY'
-          import sys, pathlib
+          import sys, pathlib, tomllib
           p = pathlib.Path(".ruff.toml")
           if not p.exists():
               sys.exit("ERROR: .ruff.toml not found")
           b = p.read_bytes()
           if b.startswith(b'\xef\xbb\xbf'):
               p.write_bytes(b[3:])
-          # additionally verify it parses
-          import tomllib
+          # parse to prove it's valid TOML
           tomllib.loads(p.read_text(encoding="utf-8"))
+          print("OK: .ruff.toml is BOM-free & parseable")
           PY
 
       - name: Install dev tools
@@ -61,4 +64,5 @@ jobs:
 
       - name: Run tests (core-backend)
         run: |
+          # expliciet testpad zodat conftest.py geladen wordt
           python -m pytest -q core-backend/tests

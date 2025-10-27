@@ -1,2 +1,2 @@
-# Markeer 'app' als Python-package voor import (pytest/CI).
-# Geen verdere inhoud nodig.
+# core-backend/app/__init__.py
+# Package marker for 'app'

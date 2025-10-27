@@ -1,14 +1,19 @@
-"""
-Pytest bootstrap:
-- Voeg 'core-backend' toe aan sys.path zodat 'app.main' importeerbaar is
-  wanneer pytest vanaf de repo-root draait.
-"""
-from pathlib import Path
+# core-backend/tests/conftest.py
+import os
 import sys
+from pathlib import Path
 
-TESTS_DIR = Path(__file__).resolve().parent
-CORE_BACKEND_DIR = TESTS_DIR.parent  # .../core-backend
+ROOT = Path(__file__).resolve().parents[2]  # repo root
+CORE = ROOT / "core-backend"
 
-core_str = str(CORE_BACKEND_DIR)
-if core_str not in sys.path:
-    sys.path.insert(0, core_str)
+for p in (str(ROOT), str(CORE)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+# Optioneel: assert dat het importpad werkt; zo niet, duidelijke fout
+try:
+    __import__("app.main")
+except Exception as exc:
+    raise RuntimeError(
+        f"Kon 'app.main' niet importeren; sys.path={sys.path[:5]}"
+    ) from exc
