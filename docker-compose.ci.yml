@@ -1,9 +1,8 @@
-﻿version: "3.9"
-services:
+﻿services:
   core-backend:
     build:
-      context: .
-      dockerfile: core-backend/Dockerfile
+      context: ./core-backend
+      dockerfile: Dockerfile
     expose:
       - "9000"
     environment:
