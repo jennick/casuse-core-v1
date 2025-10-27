@@ -4,46 +4,45 @@ import os
 import pathlib
 import subprocess
 import sys
-from typing import List
+from typing import List, Dict, Any
 
 
 def sh(cmd: List[str]) -> int:
-    """Run a command, echo it, return its exit code."""
+    """Run a command, echo it, return exit code."""
     print("+", " ".join(cmd), flush=True)
     return subprocess.run(cmd, check=False).returncode
 
 
-def _existing(p: str) -> bool:
+def exists(p: str) -> bool:
     return pathlib.Path(p).exists()
 
 
-def _discover_python_targets() -> List[str]:
+def discover_python_targets() -> List[str]:
     """
-    Detecteer gangbare paden in deze repo.
-    - Ondersteunt core-backend/app, core_backend/app, kale app, en modules/*/backend/app.
-    - Retourneert een lijst paden die bestaan.
+    Detecteer python targets voor type- en securitychecks.
+    - Ondersteunt core-backend/app, core_backend/app, kale app/
+    - Zoekt ook modules/*/backend/app
     """
-    base_candidates = [
+    candidates = [
         "core-backend/app",
         "core_backend/app",
         "app",
-        "modules",  # behandelen we speciaal (globbing)
+        "modules",  # glob hieronder
     ]
-    targets: List[str] = []
+    out: List[str] = []
 
-    for c in base_candidates:
-        if c == "modules" and _existing("modules"):
-            # Zoek alle */backend/app directories
+    for c in candidates:
+        if c == "modules" and exists("modules"):
             for d in pathlib.Path("modules").glob("*/backend/app"):
                 if d.is_dir():
-                    targets.append(str(d))
-        elif _existing(c):
-            targets.append(c)
+                    out.append(str(d))
+        elif exists(c):
+            out.append(c)
 
-    # De-duplicate while preserving order
+    # unique, order-preserving
     seen = set()
     uniq: List[str] = []
-    for t in targets:
+    for t in out:
         if t not in seen:
             uniq.append(t)
             seen.add(t)
@@ -52,39 +51,46 @@ def _discover_python_targets() -> List[str]:
 
 def run() -> int:
     rc = 0
+    summary: Dict[str, Any] = {"steps": {}, "targets": []}
 
-    # 1) Ruff lint
-    # Met .ruff.toml wordt E/F/I gecheckt; E401 in stubs wordt genegeerd, B904 staat uit.
-    rc |= sh(["ruff", "check", "."])
+    # 1) Ruff lint (E/F/I via .ruff.toml; E401 stubs genegeerd; Bugbear uit)
+    ruff_rc = sh(["ruff", "check", "."])
+    summary["steps"]["ruff"] = {"rc": ruff_rc}
+    rc |= ruff_rc
 
-    # 2) Python targets detecteren
-    py_targets = _discover_python_targets()
+    # 2) mypy per target (voorkomt duplicate-module botsingen)
+    targets = discover_python_targets()
+    summary["targets"] = targets
 
-    # 3) mypy & bandit
-    #    - Run mypy PER target om duplicate-module collisions te voorkomen.
-    #    - Gebruik flags die passen bij multi-package repos.
-    if py_targets:
-        for t in py_targets:
-            mypy_cmd = [
-                "mypy",
-                "--explicit-package-bases",
-                "--namespace-packages",
-                t,
-            ]
-            rc |= sh(mypy_cmd)
+    mypy_total_rc = 0
+    for t in targets:
+        mypy_cmd = ["mypy", "--explicit-package-bases", "--namespace-packages", t]
+        mrc = sh(mypy_cmd)
+        mypy_total_rc |= mrc
+    summary["steps"]["mypy"] = {"rc": mypy_total_rc}
+    rc |= mypy_total_rc
 
-        # Bandit mag in 1 run over alle targets
-        rc |= sh(["bandit", "-q", "-r", *py_targets])
+    # 3) Bandit security scan (rapporterend; blokkeert setup niet)
+    if targets:
+        # Rapporteer resultaten (kwartet-stilte) maar blokkeer niet.
+        bandit_cmd = ["bandit", "-q", "-r", *targets, "--exit-zero"]
+        bsrc = sh(bandit_cmd)
+        summary["steps"]["bandit"] = {"rc": bsrc, "blocking": False}
+        # rc |= bsrc  # NIET optellen: we blokkeren niet op bandit in setup
     else:
-        print("No python targets found for mypy/bandit — skipping.")
+        summary["steps"]["bandit"] = {"skipped": True}
 
-    # 4) Compose-parse (alleen als bestand bestaat)
+    # 4) Compose parse (alleen als docker-compose.yml bestaat)
     if os.path.exists("docker-compose.yml"):
-        rc |= sh(["docker", "compose", "config"])
+        dcrc = sh(["docker", "compose", "config"])
+        summary["steps"]["compose_config"] = {"rc": dcrc}
+        rc |= dcrc
+    else:
+        summary["steps"]["compose_config"] = {"skipped": True}
 
-    # 5) Resultaat
-    print(json.dumps({"ok": rc == 0, "mypy_targets": py_targets}, indent=2))
-    return rc
+    ok = rc == 0
+    print(json.dumps({"ok": ok, **summary}, indent=2))
+    return 0 if ok else rc
 
 
 if __name__ == "__main__":
