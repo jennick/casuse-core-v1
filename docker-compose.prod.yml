@@ -1,47 +1,62 @@
+# PROD override – Traefik public op :80/:443 met ACME (Let's Encrypt)
+# Host routing:
+#   https://${PROD_HOST}/         → core-frontend
+#   https://${PROD_HOST}/core/*   → core-backend
+# Vereist env vars:
+#   PROD_HOST  (bv. core.casuse-hp.com.mx)
+#   LE_EMAIL   (beheer-e-mailadres voor ACME)
+
 services:
+
   core-traefik:
-    ports:
-      - "${PUBLIC_HTTP_PORT:-80}:80"
-      - "${PUBLIC_HTTPS_PORT:-443}:443"
+    container_name: core-traefik
+    restart: unless-stopped
     command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      # ACME HTTP-01
-      - "--certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL:-admin@casuse-hp.com.mx}"
-      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.le.acme.httpchallenge=true"
-      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      # Providers
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # HTTP → HTTPS redirect
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      # ACME (Let's Encrypt)
+      - --certificatesresolvers.le.acme.email=${LE_EMAIL:?set LE_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      # Logging
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_letsencrypt:/letsencrypt
-      - /var/run/docker.sock:/var/run/docker.sock:ro"
+    # netwerk blijft gelijk uit basisbestand (extern core_net)
 
   core-backend:
+    environment:
+      ENVIRONMENT: prod
+      # Prod: strikt CORS naar je publieke host
+      CORS_ALLOW_ORIGINS: "https://${PROD_HOST:?set PROD_HOST}"
     labels:
-      - "traefik.enable=true"
-      # Prod: strikt op je domein; zelfde paden als lokaal
-      - "traefik.http.routers.core-backend.rule=Host(`${PROD_HOST:-core.casuse-hp.com.mx}`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`) || PathPrefix(`/healthz`) || PathPrefix(`/readyz`) || PathPrefix(`/token`) || PathPrefix(`/tiles`))"
-      - "traefik.http.routers.core-backend.entrypoints=websecure"
-      - "traefik.http.routers.core-backend.tls.certresolver=le"
-      - "traefik.http.services.core-backend.loadbalancer.server.port=9000"
-
-      # ---------- Dezelfde rewrites in productie ----------
-      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.regex=^/token$"
-      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.replacement=/auth/token"
-      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.regex=^/tiles(.*)$"
-      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.replacement=/api/tiles$1"
-      - "traefik.http.routers.core-backend.middlewares=core-backend-rewrite-token,core-backend-rewrite-tiles"
+      - traefik.enable=true
+      - traefik.http.routers.core-backend.rule=Host(`${PROD_HOST:?set PROD_HOST}`) && PathPrefix(`/core`)
+      - traefik.http.routers.core-backend.entrypoints=websecure
+      - traefik.http.routers.core-backend.tls.certresolver=le
+      - traefik.http.routers.core-backend.priority=100
+      - traefik.http.services.core-backend.loadbalancer.server.port=9000
 
   core-frontend:
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.core-frontend.rule=Host(`${PROD_HOST:-core.casuse-hp.com.mx}`)"
-      - "traefik.http.routers.core-frontend.entrypoints=websecure"
-      - "traefik.http.routers.core-frontend.tls.certresolver=le"
-      - "traefik.http.services.core-frontend.loadbalancer.server.port=8200"
+      - traefik.enable=true
+      - traefik.http.routers.core-frontend.rule=Host(`${PROD_HOST:?set PROD_HOST}`)
+      - traefik.http.routers.core-frontend.entrypoints=websecure
+      - traefik.http.routers.core-frontend.tls.certresolver=le
+      - traefik.http.routers.core-frontend.priority=1
+      - traefik.http.services.core-frontend.loadbalancer.server.port=8200
 
 volumes:
   traefik_letsencrypt:
+    name: traefik_letsencrypt
