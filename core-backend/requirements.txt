@@ -24,13 +24,10 @@ Flask-Mail==0.10.0
 Flask-Migrate==4.0.7
 Flask-Principal==0.4.0
 Flask-Script==2.0.6
-Flask-Security==5.6.2
-Flask-Session==0.8.0
 Flask-SQLAlchemy==3.1.1
 Flask-Testing==0.8.1
 Flask-Uploads==0.2.1
 Flask-WTF==1.2.2
-gpt4all @ file:///C:/Users/jenni/gpt4all/gpt4all/gpt4all/gpt4all-bindings/python
 greenlet==3.2.2
 gunicorn==20.1.0
 h11==0.16.0
@@ -56,7 +53,6 @@ pycparser==2.23
 pydantic==2.9.2
 pydantic-settings==2.4.0
 pydantic_core==2.23.4
-Pygments==2.19.1
 PyJWT==2.10.1
 python-dotenv==1.0.1
 PyYAML==6.0.2
@@ -76,5 +72,7 @@ uvicorn==0.30.6
 watchfiles==1.1.0
 websockets==15.0.1
 Werkzeug==3.0.1
-wrapt==1.17.2
 WTForms==3.2.1
+
+# security fix: ensure python-multipart >=0.0.18 if you use uploads via FastAPI
+python-multipart>=0.0.18
