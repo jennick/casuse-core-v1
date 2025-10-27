@@ -8,7 +8,6 @@ from typing import List, Dict, Any
 
 
 def sh(cmd: List[str]) -> int:
-    """Run a command, echo it, return exit code."""
     print("+", " ".join(cmd), flush=True)
     return subprocess.run(cmd, check=False).returncode
 
@@ -19,18 +18,15 @@ def exists(p: str) -> bool:
 
 def discover_python_targets() -> List[str]:
     """
-    Detecteer python targets voor type- en securitychecks.
-    - Ondersteunt core-backend/app, core_backend/app, kale app/
-    - Zoekt ook modules/*/backend/app
+    Detecteer python targets in een multi-module repo.
+    Ondersteunt:
+      - core-backend/app
+      - core_backend/app
+      - app
+      - modules/*/backend/app
     """
-    candidates = [
-        "core-backend/app",
-        "core_backend/app",
-        "app",
-        "modules",  # glob hieronder
-    ]
+    candidates = ["core-backend/app", "core_backend/app", "app", "modules"]
     out: List[str] = []
-
     for c in candidates:
         if c == "modules" and exists("modules"):
             for d in pathlib.Path("modules").glob("*/backend/app"):
@@ -38,8 +34,7 @@ def discover_python_targets() -> List[str]:
                     out.append(str(d))
         elif exists(c):
             out.append(c)
-
-    # unique, order-preserving
+    # de-dup met behoud van volgorde
     seen = set()
     uniq: List[str] = []
     for t in out:
@@ -50,47 +45,61 @@ def discover_python_targets() -> List[str]:
 
 
 def run() -> int:
-    rc = 0
-    summary: Dict[str, Any] = {"steps": {}, "targets": []}
+    # “Advice mode” = niet-blokkerend op lint/type/security
+    strict = os.getenv("AGENT_AUDIT_STRICT", "false").lower() in {"1", "true", "yes"}
 
-    # 1) Ruff lint (E/F/I via .ruff.toml; E401 stubs genegeerd; Bugbear uit)
+    summary: Dict[str, Any] = {"steps": {}, "targets": []}
+    hard_rc = 0          # telt alleen “harde” fouten (compose, etc.)
+    soft_rc_aggregate = 0  # ruff/mypy/bandit rc’s, alleen rapportage
+
+    # 1) Ruff (E/F/I via .ruff.toml)
     ruff_rc = sh(["ruff", "check", "."])
     summary["steps"]["ruff"] = {"rc": ruff_rc}
-    rc |= ruff_rc
+    if strict:
+        hard_rc |= ruff_rc
+    else:
+        soft_rc_aggregate |= ruff_rc
 
-    # 2) mypy per target (voorkomt duplicate-module botsingen)
+    # 2) mypy per target (voorkomt duplicate-module collision)
     targets = discover_python_targets()
     summary["targets"] = targets
-
-    mypy_total_rc = 0
+    mypy_total = 0
     for t in targets:
         mypy_cmd = ["mypy", "--explicit-package-bases", "--namespace-packages", t]
-        mrc = sh(mypy_cmd)
-        mypy_total_rc |= mrc
-    summary["steps"]["mypy"] = {"rc": mypy_total_rc}
-    rc |= mypy_total_rc
+        mypy_total |= sh(mypy_cmd)
+    summary["steps"]["mypy"] = {"rc": mypy_total}
+    if strict:
+        hard_rc |= mypy_total
+    else:
+        soft_rc_aggregate |= mypy_total
 
-    # 3) Bandit security scan (rapporterend; blokkeert setup niet)
+    # 3) Bandit (rapporterend; non-blocking)
     if targets:
-        # Rapporteer resultaten (kwartet-stilte) maar blokkeer niet.
-        bandit_cmd = ["bandit", "-q", "-r", *targets, "--exit-zero"]
-        bsrc = sh(bandit_cmd)
+        bsrc = sh(["bandit", "-q", "-r", *targets, "--exit-zero"])
         summary["steps"]["bandit"] = {"rc": bsrc, "blocking": False}
-        # rc |= bsrc  # NIET optellen: we blokkeren niet op bandit in setup
     else:
         summary["steps"]["bandit"] = {"skipped": True}
 
-    # 4) Compose parse (alleen als docker-compose.yml bestaat)
+    # 4) Compose-config validatie (dit blijft blokkerend)
     if os.path.exists("docker-compose.yml"):
         dcrc = sh(["docker", "compose", "config"])
         summary["steps"]["compose_config"] = {"rc": dcrc}
-        rc |= dcrc
+        hard_rc |= dcrc
     else:
         summary["steps"]["compose_config"] = {"skipped": True}
 
-    ok = rc == 0
-    print(json.dumps({"ok": ok, **summary}, indent=2))
-    return 0 if ok else rc
+    # 5) Eindconclusie
+    ok = hard_rc == 0
+    print(json.dumps({
+        "ok": ok,
+        "strict": strict,
+        "hard_rc": hard_rc,
+        "soft_rc": soft_rc_aggregate,
+        **summary
+    }, indent=2))
+
+    # In niet-strict mode falen we alleen op “harde” fouten.
+    return 0 if ok else hard_rc
 
 
 if __name__ == "__main__":

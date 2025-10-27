@@ -1,12 +1,8 @@
 ﻿# .ruff.toml
 [lint]
-# Hou Pycodestyle (E), Pyflakes (F) en import rules (I) aan.
-# Laat Bugbear (B*) bewust uit om B904-stijlruis te vermijden.
 select = ["E", "F", "I"]
 fixable = ["ALL"]
-# Optioneel: pas aan als je langere regels wil.
 line-length = 100
 
 [lint.per-file-ignores]
-# Agent-stubs gebruiken compacte importregels; dat is oké.
 "agent/tasks/*.py" = ["E401"]
