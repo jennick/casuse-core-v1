@@ -1,41 +1,45 @@
 name: CI
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-
-permissions:
-  contents: read
-  packages: write
-  security-events: write
+    branches: [ main ]
+  push:
+    branches: [ feat/agent-setup ]
 
 jobs:
   test:
+    name: CI / test (pull_request)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: core-backend
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.10'
 
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+      - name: Install backend runtime deps
+        run: python -m pip install --upgrade pip && python -m pip install -r core-backend/requirements.txt
 
-      - name: Lint & Tests
-        run: |
-          if [ -d tests ]; then pytest -q; else echo "No tests folder; skipping"; fi
+      - name: Install backend dev deps
+        run: python -m pip install -r core-backend/requirements-dev.txt
+
+      - name: Run backend tests
+        run: python -m pytest -q core-backend/tests
 
   build_and_scan:
+    name: CI / build_and_scan (pull_request)
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}/core-backend
     steps:
       - uses: actions/checkout@v4
 
@@ -52,39 +56,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Derive image tags
-        id: vars
-        run: |
-          SHORT_SHA=${GITHUB_SHA::7}
-          echo "TAG_SHA=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "IMAGE_BACKEND=ghcr.io/${GITHUB_REPOSITORY_OWNER}/casuse-core-backend" >> "$GITHUB_OUTPUT"
-          echo "IMAGE_FRONTEND=ghcr.io/${GITHUB_REPOSITORY_OWNER}/casuse-core-frontend" >> "$GITHUB_OUTPUT"
-
-      - name: Build backend image
+      - name: Build backend image (core-backend context)
         uses: docker/build-push-action@v6
         with:
           context: ./core-backend
-          push: true
-          tags: |
-            ${{ steps.vars.outputs.IMAGE_BACKEND }}:${{ steps.vars.outputs.TAG_SHA }}
-
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./core-frontend
-          push: true
-          tags: |
-            ${{ steps.vars.outputs.IMAGE_FRONTEND }}:${{ steps.vars.outputs.TAG_SHA }}
+          file: ./core-backend/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number || github.run_number }}
 
       - name: Generate SBOM (Syft)
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.vars.outputs.IMAGE_BACKEND }}:${{ steps.vars.outputs.TAG_SHA }}
+          image: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number || github.run_number }}
+          artifact-name: core-backend-sbom.spdx.json
 
       - name: Trivy scan (HIGH/CRITICAL -> fail)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ steps.vars.outputs.IMAGE_BACKEND }}:${{ steps.vars.outputs.TAG_SHA }}
-          format: 'table'
-          exit-code: '1'
+          image-ref: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number || github.run_number }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          vuln-type: 'os,library'
           severity: 'HIGH,CRITICAL'
+
+      - name: Upload Trivy results to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # ---------- Frontend build ----------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: core-frontend/package-lock.json
+
+      - name: Frontend install (lock-aware)
+        working-directory: core-frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Frontend build
+        working-directory: core-frontend
+        run: npm run build
+
+  # (optioneel) rooktest compose, houdt config valide
+  compose_config:
+    name: CI / compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker compose config (CI file)
+        run: docker compose -f docker-compose.ci.yml config

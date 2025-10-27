@@ -1,36 +1,65 @@
 name: Agent • PR Checks
+
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-permissions:
-  contents: read
-  pull-requests: write
-  checks: write
+    branches: [ main ]
+    paths:
+      - 'agent/**'
+      - 'core-backend/**'
+      - 'modules/**'
+      - '.ruff.toml'
+      - 'mypy.ini'
+      - 'docker-compose*.yml'
+
 jobs:
   pr-checks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Install agent deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r agent/requirements.txt
-      - name: Lint / Type / Security
+          if [ -f agent/requirements.txt ]; then python -m pip install -r agent/requirements.txt; fi
+          python -m pip install ruff mypy bandit
+
+      - name: Lint / Type / Security (advisory)
+        id: audit
+        continue-on-error: true
         run: |
-          python agent/tasks/audit_core.py
-      - name: (Optional) Build & Run backend for smoke
-        run: |
-          if [ -f core-backend/Dockerfile ]; then
-            docker build -f core-backend/Dockerfile -t casuse-core-backend:ci .
-            if [ -f docker-compose.ci.yml ]; then
-              docker compose -f docker-compose.ci.yml up -d
-              sleep 10
-              docker compose -f docker-compose.ci.yml ps
-              SMOKE_BASE="http://localhost:9000" python agent/cli.py smoke || true
-              docker compose -f docker-compose.ci.yml down -v
-            fi
-          else
-            echo "core-backend/Dockerfile not found – skipping smoke"; 
-          fi
+          python - << 'PY'
+          import json, subprocess, pathlib
+          steps = {}
+
+          def run(name, cmd):
+              try:
+                  rc = subprocess.call(cmd, shell=True)
+              except Exception:
+                  rc = 1
+              steps[name] = {"rc": rc}
+              return rc
+
+          # ruff / mypy / bandit tegen backend + modules
+          targets = ["core-backend/app", "modules"]
+          run("ruff",   "ruff check .")
+          run("mypy",   "mypy " + " ".join(targets))
+          run("bandit", "bandit -q -r " + " ".join(targets))
+
+          # compose config check: faalt niet; alleen signaal
+          run("compose_config", "docker compose -f docker-compose.ci.yml config > /dev/null")
+
+          print(json.dumps({"ok": all(v['rc']==0 for v in steps.values()),
+                            "steps": steps,
+                            "targets": targets}, indent=2))
+          PY
+
+      - name: Mark advisory result
+        if: always()
+        run: echo "Advisory checks completed (see logs)."

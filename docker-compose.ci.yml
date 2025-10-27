@@ -1,11 +1,19 @@
-﻿services:
-  core-backend:
+﻿version: "3.9"
+
+services:
+  core_backend:
     build:
       context: ./core-backend
-      dockerfile: Dockerfile
-    expose:
-      - "9000"
+      dockerfile: ./core-backend/Dockerfile
+    image: core-backend:ci
     environment:
-      - UVICORN_HOST=0.0.0.0
-      - UVICORN_PORT=9000
-    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]
+      - UVICORN_TIMEOUT=60
+    ports:
+      - "9000:9000"
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0 --port 9000
+
+networks:
+  default:
+    name: casuse_core_ci_net
