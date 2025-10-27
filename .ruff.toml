@@ -1,5 +1,4 @@
-﻿# .ruff.toml
-[lint]
+﻿[lint]
 select = ["E", "F", "I"]
 fixable = ["ALL"]
 line-length = 100
