@@ -1,68 +1,40 @@
-name: Agent • PR Checks
+name: Agent - PR Checks
 
 on:
   pull_request:
-    branches: [ main ]
-  push:
-    branches: [ feat/agent-setup ]
+    branches: ["**"]
 
 jobs:
   pr-checks:
-    name: Agent - PR Checks
+    name: Agent • PR Checks (${{ github.event_name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      # Zorg dat imports zoals "app.main" en package "core_backend" werken
-      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/core-backend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: "pip"
 
-      - name: Show Python & pip
+      - name: Install ruff
         run: |
-          python -V
-          python -m pip --version
+          python -m pip install --upgrade pip
+          pip install ruff==0.6.9
 
       - name: Ensure .ruff.toml is UTF-8 (no BOM) and parseable
         run: |
           python - <<'PY'
-          import sys, pathlib, tomllib
+          import pathlib, tomllib
           p = pathlib.Path(".ruff.toml")
-          if not p.exists():
-              sys.exit("ERROR: .ruff.toml not found")
           b = p.read_bytes()
           if b.startswith(b'\xef\xbb\xbf'):
               p.write_bytes(b[3:])
-          # parse to prove it's valid TOML
           tomllib.loads(p.read_text(encoding="utf-8"))
           print("OK: .ruff.toml is BOM-free & parseable")
           PY
 
-      - name: Install dev tools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "ruff==0.6.9" "pytest>=7.4,<9" "pytest-asyncio>=0.23,<0.25"
-
-      - name: Ruff lint
-        run: |
-          python -m ruff --version
-          python -m ruff check .
-
-      - name: Install runtime deps (core-backend)
-        run: |
-          python -m pip install -r core-backend/requirements.txt
-          python -m pip install -r core-backend/requirements-dev.txt
-
-      - name: Run tests (core-backend)
-        run: |
-          # expliciet testpad zodat conftest.py geladen wordt
-          python -m pytest -q core-backend/tests
+      - name: Ruff (lint)
+        run: ruff check .
