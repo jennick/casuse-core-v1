@@ -1,65 +1,61 @@
+# .github/workflows/agent-pr-checks.yml
 name: Agent • PR Checks
 
 on:
+  push:
+    branches: [ "**" ]
   pull_request:
-    branches: [ main ]
-    paths:
-      - 'agent/**'
-      - 'core-backend/**'
-      - 'modules/**'
-      - '.ruff.toml'
-      - 'mypy.ini'
-      - 'docker-compose*.yml'
+    branches: [ "main" ]
+
+permissions:
+  contents: read
 
 jobs:
   pr-checks:
+    name: Agent - PR Checks
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install agent deps
+      - name: Show Python version
+        run: python -V
+
+      - name: Ensure no BOM in .ruff.toml
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          if [ -f agent/requirements.txt ]; then python -m pip install -r agent/requirements.txt; fi
-          python -m pip install ruff mypy bandit
+          if [ -f ".ruff.toml" ]; then
+            # lees eerste drie bytes als hex
+            head -c 3 .ruff.toml | od -An -t x1 | tr -d ' \n' > .ruff.head.hex || true
+            HEADHEX=$(cat .ruff.head.hex || echo "")
+            # EFBBBF = UTF-8 BOM
+            if [ "$HEADHEX" = "efbbbf" ]; then
+              echo "::error title=Ruff config heeft BOM::Verwijder de UTF-8 BOM uit .ruff.toml"
+              exit 1
+            fi
+          else
+            echo "::warning ::.ruff.toml niet gevonden; ruff zal defaults gebruiken."
+          fi
 
-      - name: Lint / Type / Security (advisory)
-        id: audit
-        continue-on-error: true
-        run: |
-          python - << 'PY'
-          import json, subprocess, pathlib
-          steps = {}
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
 
-          def run(name, cmd):
-              try:
-                  rc = subprocess.call(cmd, shell=True)
-              except Exception:
-                  rc = 1
-              steps[name] = {"rc": rc}
-              return rc
+      - name: Ruff version
+        run: ruff --version
 
-          # ruff / mypy / bandit tegen backend + modules
-          targets = ["core-backend/app", "modules"]
-          run("ruff",   "ruff check .")
-          run("mypy",   "mypy " + " ".join(targets))
-          run("bandit", "bandit -q -r " + " ".join(targets))
+      - name: Run ruff (respect .ruff.toml)
+        run: ruff check . --output-format=github
 
-          # compose config check: faalt niet; alleen signaal
-          run("compose_config", "docker compose -f docker-compose.ci.yml config > /dev/null")
-
-          print(json.dumps({"ok": all(v['rc']==0 for v in steps.values()),
-                            "steps": steps,
-                            "targets": targets}, indent=2))
-          PY
-
-      - name: Mark advisory result
-        if: always()
-        run: echo "Advisory checks completed (see logs)."
+      # (optioneel) je kunt hier nog black/mypy/pytest steps toevoegen indien gewenst
+      # - name: Install test deps
+      #   run: python -m pip install -r core-backend/requirements-dev.txt
+      # - name: Pytest smoke
+      #   run: python -m pytest -q core-backend/tests
