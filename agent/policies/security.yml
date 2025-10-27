@@ -1,0 +1,10 @@
+python:
+  linters: ["ruff"]
+  typecheck: ["mypy"]
+  vulns: ["bandit"]
+docker:
+  scan: []
+jwt:
+  required_alg: ["RS256","ES256"]
+env:
+  denylist_files: [".env", ".env.prod", ".env.dev", "secrets.*"]

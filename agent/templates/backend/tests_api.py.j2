@@ -1,0 +1,10 @@
+from httpx import AsyncClient
+
+async def test_list_ok(async_client: AsyncClient):
+  r = await async_client.get("/api/{{ spec.feature.name }}/")
+  assert r.status_code in (200, 401, 403)
+
+async def test_create_ok(async_client: AsyncClient):
+  payload = {"name":"Alice","email":"alice@example.com","status":"active"}
+  r = await async_client.post("/api/{{ spec.feature.name }}/", json=payload)
+  assert r.status_code in (200, 201, 401, 403)

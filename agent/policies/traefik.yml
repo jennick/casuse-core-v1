@@ -1,0 +1,8 @@
+entrypoints: ["web", "websecure"]
+requirements:
+  hsts: true
+  rate_limit: true
+  no_host_mode_ports: true
+validate:
+  - label: "traefik.enable=true"
+  - label_prefix: "traefik.http.routers."

@@ -1,0 +1,12 @@
+paths:
+  backend:
+    router: "app/api/{name}.py"
+    models: "app/models/{name}.py"
+    schemas: "app/schemas/{name}.py"
+    services: "app/services/{name}.py"
+    repos: "app/repositories/{name}.py"
+    migration: "alembic/versions/{ts}_{name}.py"
+    tests_api: "tests/api/test_{name}.py"
+  frontend:
+    page: "core/frontend/src/pages/{name}/index.tsx"
+    client: "core/frontend/src/api/{name}.ts"

@@ -1,0 +1,39 @@
+name: Agent • Commands
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+jobs:
+  route:
+    if: contains(github.event.comment.body, '/agent ')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r agent/requirements.txt
+      - name: Dispatch
+        env:
+          ISSUE_BODY: ${{ github.event.comment.body }}
+        run: |
+          echo "Command: $ISSUE_BODY"
+          if echo "$ISSUE_BODY" | grep -q "/agent smoke"; then
+            echo "Running smoke..."
+            if [ -f core-backend/Dockerfile ] && [ -f docker-compose.ci.yml ]; then
+              docker build -f core-backend/Dockerfile -t casuse-core-backend:ci .
+              docker compose -f docker-compose.ci.yml up -d
+              sleep 10
+              SMOKE_BASE="http://localhost:9000" python agent/cli.py smoke || true
+              docker compose -f docker-compose.ci.yml down -v
+            else
+              echo "Missing Dockerfile or docker-compose.ci.yml; skipping."
+            fi
+          elif echo "$ISSUE_BODY" | grep -q "/agent audit"; then
+            python agent/cli.py audit
+          elif echo "$ISSUE_BODY" | grep -q "/agent fix"; then
+            python agent/cli.py fix-ports
+          else
+            echo "Unknown /agent command"

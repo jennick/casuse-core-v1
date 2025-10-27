@@ -1,0 +1,5 @@
+gates:
+  coverage_min: 0.70
+  smoke_green: true
+  security_block_on_high: true
+  changelog_required: false

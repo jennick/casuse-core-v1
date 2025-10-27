@@ -1,0 +1,25 @@
+name: Agent • Auto-Merge
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  auto-merge:
+    if: contains(join(fromJson('["' + github.event.pull_request.labels.*.name + '"]')), 'agent:auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for required checks
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+          running-workflow-name: Agent • Auto-Merge
+      - name: Enable auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+          merge-method: squash

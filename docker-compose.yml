@@ -1,85 +1,87 @@
+# DEV compose – Traefik lokaal via http://localhost:${PUBLIC_HTTP_PORT:-10400}
+# Extern netwerk (bestaand): casuse-core-v1_core_net
+
+networks:
+  core_net:
+    external: true
+    name: casuse-core-v1_core_net
+
 services:
-  core-db:
-    image: postgres:15
-    container_name: core-db
+
+  core-traefik:
+    image: traefik:v2.11
+    container_name: core-traefik
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: "${POSTGRES_DB:-casuse_core}"
-      POSTGRES_USER: "${POSTGRES_USER:-casuse}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-V4!urw7FtCj^2sGqKz9*NhQp5yWbLdXm}"
-      TZ: "${TZ:-UTC}"
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      # dev entrypoint (HTTP)
+      - --entrypoints.web.address=:80
+      # logging
+      - --log.level=INFO
+      # dashboard uit in dev
+      - --api.dashboard=false
+    ports:
+      - "${PUBLIC_HTTP_PORT:-10400}:80"
     volumes:
-      - core_db_data:/var/lib/postgresql/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [core_net]
 
   core-backend:
     build:
       context: ./core-backend
+    image: casuse/core-backend:dashboard-mvp
     restart: unless-stopped
     environment:
-      ENVIRONMENT: "${ENVIRONMENT:-production}"
-      TZ: "${TZ:-UTC}"
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-casuse}:${POSTGRES_PASSWORD:-V4!urw7FtCj^2sGqKz9*NhQp5yWbLdXm}@core-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-casuse_core}"
-      JWT_ALG: "${JWT_ALG:-HS256}"
-      JWT_SECRET: "${JWT_SECRET:-Q5&b9LzR1@eY7u!H3pV^cD2kM8sN0xAa}"
-      # issuer verwijst intern naar de backend op poort 9000
-      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-http://core-backend:9000/auth}"
-      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-core-frontend}"
-      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-U8!pDx3^Tn5#qLs7Zk1@wVr0}"
-    depends_on:
-      - core-db
+      API_PREFIX: /core
+      ENVIRONMENT: dev
+      # Dev: sta Traefik-origin toe
+      CORS_ALLOW_ORIGINS: "http://localhost:${PUBLIC_HTTP_PORT:-10400}"
+    expose:
+      - "9000"   # alleen intern; Traefik routeert
     labels:
-      - "traefik.enable=true"
-
-      # Router: alles voor backend-API's
-      - "traefik.http.routers.core-backend.rule=HostRegexp(`{host:.+}`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`) || PathPrefix(`/healthz`) || PathPrefix(`/readyz`) || PathPrefix(`/token`) || PathPrefix(`/tiles`))"
-      - "traefik.http.routers.core-backend.entrypoints=web"
-      # Backend luistert op 9000
-      - "traefik.http.services.core-backend.loadbalancer.server.port=9000"
-
-      # ---------- Rewrites (frontend -> backend) ----------
-      # 1) /token  -> /auth/token   (POST)
-      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.regex=^/token$"
-      - "traefik.http.middlewares.core-backend-rewrite-token.replacepathregex.replacement=/auth/token"
-      # 2) /tiles  -> /api/tiles    (GET)
-      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.regex=^/tiles(.*)$"
-      - "traefik.http.middlewares.core-backend-rewrite-tiles.replacepathregex.replacement=/api/tiles$1"
-      # Koppel beide middlewares aan de backend-router
-      - "traefik.http.routers.core-backend.middlewares=core-backend-rewrite-token,core-backend-rewrite-tiles"
+      - traefik.enable=true
+      # /core → backend (hoge prioriteit t.o.v. frontend catch-all)
+      - traefik.http.routers.core-backend.rule=PathPrefix(`/core`)
+      - traefik.http.routers.core-backend.entrypoints=web
+      - traefik.http.routers.core-backend.priority=100
+      - traefik.http.services.core-backend.loadbalancer.server.port=9000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    depends_on:
+      - core-traefik
     networks: [core_net]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   core-frontend:
     build:
       context: ./core-frontend
+    image: casuse/core-frontend:dashboard-mvp
     restart: unless-stopped
+    expose:
+      - "8200"   # alleen intern; Traefik routeert
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.core-frontend.rule=HostRegexp(`{host:.+}`)"
-      - "traefik.http.routers.core-frontend.entrypoints=web"
-      # Frontend container luistert intern op 8200
-      - "traefik.http.services.core-frontend.loadbalancer.server.port=8200"
+      - traefik.enable=true
+      # root → frontend (catch-all met lage prioriteit)
+      - traefik.http.routers.core-frontend.rule=PathPrefix(`/`)
+      - traefik.http.routers.core-frontend.entrypoints=web
+      - traefik.http.routers.core-frontend.priority=1
+      - traefik.http.services.core-frontend.loadbalancer.server.port=8200
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8200/"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      - core-traefik
     networks: [core_net]
-
-  core-traefik:
-    image: traefik:2.11
-    container_name: core-traefik
-    restart: unless-stopped
-    ports:
-      - "${PUBLIC_HTTP_PORT:-10400}:80"   # lokaal alleen HTTP
-    command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - core_net
-      - casuse_edge
-
-networks:
-  core_net: {}
-  casuse_edge:
-    external: true
-
-volumes:
-  core_db_data:
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
