@@ -1,18 +1,36 @@
 ﻿# core-backend/Dockerfile
-FROM python:3.11-slim
+ARG PYTHON_VERSION=3.10
+FROM python:${PYTHON_VERSION}-slim AS base
 
-ENV PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
+
+# system deps (psycopg2, build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      libpq-dev \
+      curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 1) requirements (relatief aan de build context = core-backend/)
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# ---- deps ----
+# kopieer alleen requirements voor betere cache-hits
+COPY core-backend/requirements.txt ./requirements.txt
+RUN python -m pip install --upgrade pip \
+ && python -m pip install -r requirements.txt
 
-# 2) applicatiecode (relatief aan core-backend/)
-COPY app ./app
+# ---- app ----
+COPY core-backend /app
 
+# Expose (alleen documentair)
 EXPOSE 9000
-# cmd laten we aan docker-compose.ci.yml
+
+# Healthcheck (optioneel; pas pad aan als je health endpoint anders heet)
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -f http://127.0.0.1:9000/healthz || exit 1
+
+# Start uvicorn (pas module:app aan indien nodig)
+# We gebruiken app.main:app zoals in je smoke-test wordt verwacht.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000"]

@@ -1,19 +1,16 @@
-# .github/workflows/agent-pr-checks.yml
 name: Agent • PR Checks
 
 on:
-  push:
-    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
+    branches: [ main ]
+  push:
+    branches: [ feat/agent-setup ]
 
 jobs:
   pr-checks:
     name: Agent - PR Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -25,37 +22,43 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: "pip"
 
-      - name: Show Python version
-        run: python -V
-
-      - name: Ensure no BOM in .ruff.toml
-        shell: bash
+      - name: Show Python & pip
         run: |
-          if [ -f ".ruff.toml" ]; then
-            # lees eerste drie bytes als hex
-            head -c 3 .ruff.toml | od -An -t x1 | tr -d ' \n' > .ruff.head.hex || true
-            HEADHEX=$(cat .ruff.head.hex || echo "")
-            # EFBBBF = UTF-8 BOM
-            if [ "$HEADHEX" = "efbbbf" ]; then
-              echo "::error title=Ruff config heeft BOM::Verwijder de UTF-8 BOM uit .ruff.toml"
-              exit 1
-            fi
-          else
-            echo "::warning ::.ruff.toml niet gevonden; ruff zal defaults gebruiken."
-          fi
+          python -V
+          python -m pip --version
 
-      - name: Install ruff
-        run: python -m pip install --upgrade pip ruff
+      - name: Ensure UTF-8 no-BOM in .ruff.toml
+        run: |
+          python - <<'PY'
+          import sys, pathlib
+          p = pathlib.Path(".ruff.toml")
+          if not p.exists():
+              sys.exit("ERROR: .ruff.toml not found")
+          b = p.read_bytes()
+          if b.startswith(b'\xef\xbb\xbf'):
+              p.write_bytes(b[3:])
+          # additionally verify it parses
+          import tomllib
+          tomllib.loads(p.read_text(encoding="utf-8"))
+          PY
 
-      - name: Ruff version
-        run: ruff --version
+      - name: Install dev tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ruff==0.6.9" "pytest>=7.4,<9" "pytest-asyncio>=0.23,<0.25"
 
-      - name: Run ruff (respect .ruff.toml)
-        run: ruff check . --output-format=github
+      - name: Ruff lint
+        run: |
+          python -m ruff --version
+          python -m ruff check .
 
-      # (optioneel) je kunt hier nog black/mypy/pytest steps toevoegen indien gewenst
-      # - name: Install test deps
-      #   run: python -m pip install -r core-backend/requirements-dev.txt
-      # - name: Pytest smoke
-      #   run: python -m pytest -q core-backend/tests
+      - name: Install runtime deps (core-backend)
+        run: |
+          python -m pip install -r core-backend/requirements.txt
+          python -m pip install -r core-backend/requirements-dev.txt
+
+      - name: Run tests (core-backend)
+        run: |
+          python -m pytest -q core-backend/tests

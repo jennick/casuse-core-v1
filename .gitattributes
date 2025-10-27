@@ -1,11 +1,6 @@
-# .gitattributes
 * text=auto
-
-# Forceer LF voor veelvoorkomende CI-configs
-*.sh   text eol=lf
-*.yml  text eol=lf
+*.sh  text eol=lf
+*.yml text eol=lf
 *.yaml text eol=lf
 *.toml text eol=lf
-*.py   text eol=lf
-*.ps1  text eol=lf
-*.md   text eol=lf
+*.py text eol=lf
